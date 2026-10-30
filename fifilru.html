@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic OS Page Replacement Simulator</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --hit-bg: #d1e7dd;
+            --hit-text: #0f5132;
+            --fault-bg: #f8d7da;
+            --fault-text: #842029;
+            --bg-light: #f8f9fa;
+        }
+        body {
+            background-color: var(--bg-light);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            padding-top: 2rem;
+            padding-bottom: 4rem;
+        }
+        
+        .header-title {
+            font-weight: 800;
+            color: #212529;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Simulation Grid Styles */
+        .result-container {
+            overflow-x: auto;
+            background: white;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            border: 1px solid #dee2e6;
+            scroll-behavior: smooth;
+        }
+        .simulation-table {
+            border-collapse: separate;
+            border-spacing: 4px;
+            margin-bottom: 0;
+        }
+        .simulation-table th, .simulation-table td {
+            text-align: center;
+            vertical-align: middle;
+            min-width: 50px;
+            height: 50px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        .simulation-table thead th {
+            background-color: #e9ecef;
+            font-weight: bold;
+        }
+        .frame-label {
+            background-color: #f8f9fa;
+            font-weight: bold;
+            color: #495057;
+            white-space: nowrap;
+            padding: 0 15px !important;
+            position: sticky;
+            left: 0;
+            z-index: 2;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+        }
+        .empty-frame {
+            color: #adb5bd;
+            background-color: #fdfdfd;
+        }
+        
+        /* Highlight Classes with Animation */
+        .hit-highlight {
+            background-color: var(--hit-bg) !important;
+            color: var(--hit-text) !important;
+            font-weight: bold;
+            animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border-color: #badbcc !important;
+        }
+        .fault-highlight {
+            background-color: var(--fault-bg) !important;
+            color: var(--fault-text) !important;
+            font-weight: bold;
+            animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border-color: #f5c2c7 !important;
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Stats Cards */
+        .stat-card {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            text-align: center;
+            transition: transform 0.2s ease;
+        }
+        .stat-val {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 0;
+            transition: color 0.3s ease;
+        }
+        .algo-section {
+            background: white;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-bottom: 2rem;
+        }
+
+        .status-badge {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            line-height: 30px;
+            border-radius: 50%;
+            font-weight: bold;
+        }
+        .status-h { background: var(--hit-bg); color: var(--hit-text); }
+        .status-f { background: var(--fault-bg); color: var(--fault-text); }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- Header -->
+        <div class="text-center mb-4">
+            <h1 class="header-title">Dynamic Page Replacement Simulator</h1>
+            <p class="text-muted">Real-time animated comparison of FIFO and LRU algorithms</p>
+        </div>
+
+        <!-- Input Controls -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-body p-4">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-7">
+                        <label for="refString" class="form-label fw-bold">Reference String (comma separated)</label>
+                        <input type="text" class="form-control form-control-lg bg-light" id="refString" 
+                               value="7, 0, 1, 2, 0, 3, 0, 4, 2, 3, 0, 3, 2, 1, 2, 0, 1, 7, 0, 1" 
+                               placeholder="e.g. 1, 2, 3, 4, 1, 2, 5">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="numFrames" class="form-label fw-bold">Number of Frames</label>
+                        <input type="number" class="form-control form-control-lg bg-light" id="numFrames" value="3" min="1" max="10">
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-primary btn-lg w-100 fw-bold shadow-sm" id="startBtn" onclick="startSimulation()">Simulate</button>
+                    </div>
+                </div>
+                <div id="error-msg" class="text-danger mt-2 fw-bold" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Output Section (Hidden initially) -->
+        <div id="output-section" style="display: none;">
+            
+            <!-- Legend -->
+            <div class="d-flex justify-content-center align-items-center mb-4 text-muted small fw-bold">
+                <span class="me-4"><span class="d-inline-block p-2 rounded fault-highlight me-1" style="width: 20px; height:20px; vertical-align: middle;"></span> Page Fault / Replaced</span>
+                <span><span class="d-inline-block p-2 rounded hit-highlight me-1" style="width: 20px; height:20px; vertical-align: middle;"></span> Page Hit</span>
+            </div>
+
+            <!-- Algorithms Container -->
+            <div class="row g-4">
+                <!-- FIFO Column -->
+                <div class="col-xl-6">
+                    <div class="algo-section h-100">
+                        <h3 class="fw-bold mb-3 text-primary">FIFO Algorithm</h3>
+                        
+                        <!-- Stats Row -->
+                        <div class="row g-2 mb-3">
+                            <div class="col-4">
+                                <div class="stat-card">
+                                    <div class="text-muted small text-uppercase fw-bold">Faults</div>
+                                    <div class="stat-val text-danger" id="fifo-faults">0</div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="stat-card">
+                                    <div class="text-muted small text-uppercase fw-bold">Hits</div>
+                                    <div class="stat-val text-success" id="fifo-hits">0</div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="stat-card">
+                                    <div class="text-muted small text-uppercase fw-bold">Hit Ratio</div>
+                                    <div class="stat-val text-primary" id="fifo-ratio">0%</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Grid -->
+                        <div class="result-container" id="fifo-container">
+                            <table class="table mb-0 simulation-table" id="fifo-table">
+                                <!-- Populated dynamically -->
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LRU Column -->
+                <div class="col-xl-6">
+                    <div class="algo-section h-100">
+                        <h3 class="fw-bold mb-3 text-primary">LRU Algorithm</h3>
+                        
+                        <!-- Stats Row -->
+                        <div class="row g-2 mb-3">
+                            <div class="col-4">
+                                <div class="stat-card">
+                                    <div class="text-muted small text-uppercase fw-bold">Faults</div>
+                                    <div class="stat-val text-danger" id="lru-faults">0</div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="stat-card">
+                                    <div class="text-muted small text-uppercase fw-bold">Hits</div>
+                                    <div class="stat-val text-success" id="lru-hits">0</div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="stat-card">
+                                    <div class="text-muted small text-uppercase fw-bold">Hit Ratio</div>
+                                    <div class="stat-val text-primary" id="lru-ratio">0%</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Grid -->
+                        <div class="result-container" id="lru-container">
+                            <table class="table mb-0 simulation-table" id="lru-table">
+                                <!-- Populated dynamically -->
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Simulation Logic -->
+    <script>
+        const DELAY_MS = 800; // Animation delay between steps
+
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        async function startSimulation() {
+            const startBtn = document.getElementById('startBtn');
+            const refInput = document.getElementById('refString').value;
+            const framesInput = parseInt(document.getElementById('numFrames').value);
+            const errorDiv = document.getElementById('error-msg');
+
+            // Parse and validate input
+            const refString = refInput.split(',')
+                                      .map(s => parseInt(s.trim()))
+                                      .filter(n => !isNaN(n));
+
+            if (refString.length === 0) {
+                errorDiv.textContent = "Error: Please enter a valid comma-separated reference string of numbers.";
+                errorDiv.style.display = 'block';
+                return;
+            }
+            if (isNaN(framesInput) || framesInput < 1) {
+                errorDiv.textContent = "Error: Please enter a valid number of frames (minimum 1).";
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            errorDiv.style.display = 'none';
+            document.getElementById('output-section').style.display = 'block';
+            
+            // Disable button during simulation
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Simulating...';
+
+            // Pre-calculate full histories
+            const fifoData = simulateFIFO(refString, framesInput);
+            const lruData = simulateLRU(refString, framesInput);
+
+            // Setup empty UI state
+            setupTable('fifo-table', framesInput);
+            setupTable('lru-table', framesInput);
+            resetStats('fifo');
+            resetStats('lru');
+
+            // Run step-by-step animation
+            let currentFifoHits = 0, currentFifoFaults = 0;
+            let currentLruHits = 0, currentLruFaults = 0;
+
+            for (let i = 0; i < refString.length; i++) {
+                // Update FIFO
+                const fifoStep = fifoData.history[i];
+                if (fifoStep.isHit) currentFifoHits++; else currentFifoFaults++;
+                appendStepToTable('fifo-table', refString[i], fifoStep, framesInput);
+                updateStats('fifo', currentFifoHits, currentFifoFaults, i + 1);
+
+                // Update LRU
+                const lruStep = lruData.history[i];
+                if (lruStep.isHit) currentLruHits++; else currentLruFaults++;
+                appendStepToTable('lru-table', refString[i], lruStep, framesInput);
+                updateStats('lru', currentLruHits, currentLruFaults, i + 1);
+
+                // Auto-scroll containers
+                const fifoCont = document.getElementById('fifo-container');
+                const lruCont = document.getElementById('lru-container');
+                fifoCont.scrollLeft = fifoCont.scrollWidth;
+                lruCont.scrollLeft = lruCont.scrollWidth;
+
+                // Wait before next step
+                await sleep(DELAY_MS);
+            }
+
+            // Restore button
+            startBtn.disabled = false;
+            startBtn.textContent = 'Restart Simulation';
+        }
+
+        // --- Core Algorithm Logic (Pre-calculation) ---
+        function simulateFIFO(refString, numFrames) {
+            let frames = [];      
+            let queue = [];       
+            let history = [];     
+
+            for (let i = 0; i < refString.length; i++) {
+                let page = refString[i];
+                let isHit = frames.includes(page);
+                let activeSlot = -1; 
+
+                if (isHit) {
+                    activeSlot = frames.indexOf(page);
+                } else {
+                    if (frames.length < numFrames) {
+                        frames.push(page);
+                        queue.push(page);
+                        activeSlot = frames.length - 1;
+                    } else {
+                        let replacedPage = queue.shift();
+                        activeSlot = frames.indexOf(replacedPage);
+                        frames[activeSlot] = page;
+                        queue.push(page);
+                    }
+                }
+                history.push({ page, framesState: [...frames], isHit, activeSlot });
+            }
+            return { history };
+        }
+
+        function simulateLRU(refString, numFrames) {
+            let frames = [];
+            let lastUsedMap = new Map();
+            let history = [];
+
+            for (let i = 0; i < refString.length; i++) {
+                let page = refString[i];
+                let isHit = frames.includes(page);
+                let activeSlot = -1;
+
+                if (isHit) {
+                    activeSlot = frames.indexOf(page);
+                } else {
+                    if (frames.length < numFrames) {
+                        frames.push(page);
+                        activeSlot = frames.length - 1;
+                    } else {
+                        let lruPage = frames[0];
+                        let minTime = lastUsedMap.get(lruPage);
+                        
+                        for (let f of frames) {
+                            if (lastUsedMap.get(f) < minTime) {
+                                minTime = lastUsedMap.get(f);
+                                lruPage = f;
+                            }
+                        }
+                        activeSlot = frames.indexOf(lruPage);
+                        frames[activeSlot] = page;
+                    }
+                }
+                lastUsedMap.set(page, i); 
+                history.push({ page, framesState: [...frames], isHit, activeSlot });
+            }
+            return { history };
+        }
+
+        // --- UI Rendering Logic ---
+        
+        function resetStats(prefix) {
+            document.getElementById(`${prefix}-hits`).textContent = '0';
+            document.getElementById(`${prefix}-faults`).textContent = '0';
+            document.getElementById(`${prefix}-ratio`).textContent = '0%';
+        }
+
+        function updateStats(prefix, hits, faults, totalProcessed) {
+            document.getElementById(`${prefix}-hits`).textContent = hits;
+            document.getElementById(`${prefix}-faults`).textContent = faults;
+            const ratio = totalProcessed > 0 ? ((hits / totalProcessed) * 100).toFixed(1) : 0;
+            document.getElementById(`${prefix}-ratio`).textContent = ratio + '%';
+        }
+
+        function setupTable(tableId, numFrames) {
+            const table = document.getElementById(tableId);
+            table.innerHTML = ''; // Clear previous
+
+            // Setup Header
+            let thead = document.createElement('thead');
+            let headerRow = document.createElement('tr');
+            headerRow.id = `${tableId}-header`;
+            headerRow.innerHTML = `<th class="frame-label">Ref</th>`;
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            // Setup Body Rows (Frames)
+            let tbody = document.createElement('tbody');
+            tbody.id = `${tableId}-body`;
+            for (let r = 0; r < numFrames; r++) {
+                let row = document.createElement('tr');
+                row.id = `${tableId}-frame-${r}`;
+                row.innerHTML = `<td class="frame-label">F${r + 1}</td>`;
+                tbody.appendChild(row);
+            }
+
+            // Setup Status Row
+            let statusRow = document.createElement('tr');
+            statusRow.id = `${tableId}-status`;
+            statusRow.innerHTML = `<td class="frame-label">Status</td>`;
+            tbody.appendChild(statusRow);
+            
+            table.appendChild(tbody);
+        }
+
+        function appendStepToTable(tableId, refPage, stepData, numFrames) {
+            // Append Header
+            const headerRow = document.getElementById(`${tableId}-header`);
+            const th = document.createElement('th');
+            th.textContent = refPage;
+            headerRow.appendChild(th);
+
+            // Append Frame Data
+            for (let r = 0; r < numFrames; r++) {
+                const row = document.getElementById(`${tableId}-frame-${r}`);
+                const td = document.createElement('td');
+                const cellVal = stepData.framesState[r];
+
+                if (cellVal !== undefined) {
+                    td.textContent = cellVal;
+                    // Add animation classes if this cell was the active one
+                    if (r === stepData.activeSlot) {
+                        td.className = stepData.isHit ? 'hit-highlight' : 'fault-highlight';
+                    }
+                } else {
+                    td.textContent = '-';
+                    td.className = 'empty-frame';
+                }
+                row.appendChild(td);
+            }
+
+            // Append Status
+            const statusRow = document.getElementById(`${tableId}-status`);
+            const statusTd = document.createElement('td');
+            if (stepData.isHit) {
+                statusTd.innerHTML = `<div class="status-badge status-h">H</div>`;
+            } else {
+                statusTd.innerHTML = `<div class="status-badge status-f">F</div>`;
+            }
+            statusRow.appendChild(statusTd);
+        }
+    </script>
+</body>
+</html>
